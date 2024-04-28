@@ -1,5 +1,4 @@
-
 target/
 dbt_packages/
 logs/
-C:\Users\gullu\Desktop\course\airflow-dbt-elt\dbt\profiles.yml
+profiles.yml
