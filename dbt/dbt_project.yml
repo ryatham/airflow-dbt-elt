@@ -1,12 +1,12 @@
-name: 'jaffle_shop'
+name: 'dbtlearn'
 version: '0.1'
-profile: 'jaffle_shop'
+profile: 'dbtlearn'
 config-version: 2
 
-source-paths: ["models"]
+model-paths: ["models"]
 analysis-paths: ["analysis"]
 test-paths: ["tests"]
-data-paths: ["data"]
+seed-paths: ["seeds"]
 macro-paths: ["macros"]
 
 target-path: "target"
@@ -16,8 +16,12 @@ clean-targets:
     - "logs"
 
 models:
-  jaffle_shop:
-      materialized: table
-      staging:
-        materialized: view
-        +tags: "tag_staging"
+  dbtlearn:
+    src:
+      +materialized: view
+    dim:
+      +materialized: table
+    fct:
+      +materialized: table
+    mart:
+      +materialized: table
