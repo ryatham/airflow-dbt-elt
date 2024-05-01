@@ -3,7 +3,7 @@ from airflow.operators.bash_operator import BashOperator
 from datetime import datetime, timedelta
 
 
-DBT_PROJECT_DIR = "C:\Users\gullu\Desktop\course\airflow-dbt-elt\dbt"
+# DBT_PROJECT_DIR = "C:\Users\gullu\Desktop\course\airflow-dbt-elt\dbt"
 
 # Define default arguments for the DAG
 default_args = {
