@@ -1,39 +1,67 @@
-from airflow import DAG
-from airflow.operators.bash_operator import BashOperator
-from datetime import datetime, timedelta
+from datetime import timedelta
+from pendulum import datetime
+
+from airflow.decorators import dag
+from airflow.operators.bash import BashOperator
+from airflow_provider_hightouch.operators.hightouch import HightouchTriggerSyncOperator
+from airflow.utils.edgemodifier import Label
+from airflow.utils.trigger_rule import TriggerRule
 
 
-# DBT_PROJECT_DIR = "C:\Users\gullu\Desktop\course\airflow-dbt-elt\dbt"
+# We're hardcoding the project directory value here for the purpose of the demo, but in a production
+# environment this would probably come from a config file and/or environment variables!
+DBT_PROJECT_DIR = "/usr/local/airflow/dbt"
 
-# Define default arguments for the DAG
-default_args = {
-    'owner': 'airflow',
-    'depends_on_past': False,
-    'email_on_failure': False,
-    'email_on_retry': False,
-    'retries': 1,
-    'retry_delay': timedelta(minutes=5),
-    'start_date': datetime(2024, 5, 1)
-}
+# DBT_ENV = {
+#     "DBT_USER": "{{ conn.postgres.login }}",
+#     "DBT_ENV_SECRET_PASSWORD": "{{ conn.postgres.password }}",
+#     "DBT_HOST": "{{ conn.postgres.host }}",
+#     "DBT_SCHEMA": "{{ conn.postgres.schema }}",
+#     "DBT_PORT": "{{ conn.postgres.port }}",
+# }
 
-# Define the DAG
-dag = DAG(
-    'src_hosts',
-    default_args=default_args,
-    description='DAG to run a specific dbt src_hosts model',
-    schedule_interval='@daily',
-    catchup=False
+
+@dag(
+    start_date=datetime(2024, 5, 1),
+    schedule_interval=None,
+    catchup=False,
+    doc_md=__doc__,
 )
 
-# Define a task to run a specific dbt model
-src_hosts = BashOperator(
-    task_id='src_hosts',
-    bash_command='dbt run --model src_hosts',
-    dag=dag
-)
+def dbt_run_from_failure():
+    # This task loads the CSV files from dbt/data into the local Postgres database for the purpose of this demo.
+    # In practice, we'd usually expect the data to have already been loaded to the database.
+    dbt_seed = BashOperator(
+        task_id="dbt_seed",
+        bash_command=f"dbt seed --full-refresh --profiles-dir {DBT_PROJECT_DIR} --project-dir {DBT_PROJECT_DIR}",
+        # env=DBT_ENV,
+    )
 
-src_hosts
-# Set task dependencies if needed
-# For example, if you have a previous task that needs to be completed before running the specific model
-# run_specific_model_task.set_upstream(earlier_task)
+    dbt_run = BashOperator(
+        task_id="dbt_run",
+        bash_command=f"dbt run --profiles-dir {DBT_PROJECT_DIR} --project-dir {DBT_PROJECT_DIR}",
+        # env=DBT_ENV,
+    )
 
+    # Fill in the previous state artifacts needed to run from this point.
+    dbt_build_rerun = BashOperator(
+        task_id="dbt_build_rerun",
+        bash_command="dbt build --select result:error+ --defer --state <path/to/previous_state_artifacts>",
+        # env=DBT_ENV,
+        trigger_rule=TriggerRule.ALL_FAILED,
+    )
+
+    # Due to the ONE_SUCCESS rule, if one of the two upstream tasks succeed, this task will run.
+    sync_data_to_salesforce = HightouchTriggerSyncOperator(
+        task_id="sync_data_to_salesforce",
+        connection_id="hightouch",
+        sync_id=21,
+        synchronous=True,
+        trigger_rule=TriggerRule.ONE_SUCCESS,
+    )
+
+    # Explicitly setting this task as dependent on both upstream tasks.
+    dbt_seed >> dbt_run >> Label("Only if dbt run fails") >> dbt_build_rerun >> sync_data_to_salesforce
+    dbt_run >> Label("If it succeeds") >> sync_data_to_salesforce
+
+dag = dbt_run_from_failure()
